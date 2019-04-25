@@ -632,15 +632,12 @@ class History(Callback):
 
 class ModelCheckpoint(Callback):
     """Save the model after every epoch.
-
     `filepath` can contain named formatting options,
     which will be filled with the values of `epoch` and
     keys in `logs` (passed in `on_epoch_end`).
-
     For example: if `filepath` is `weights.{epoch:02d}-{val_loss:.2f}.hdf5`,
     then the model checkpoints will be saved with the epoch number and
     the validation loss in the filename.
-
     # Arguments
         filepath: string, path to save the model file.
         monitor: quantity to monitor.
@@ -660,11 +657,12 @@ class ModelCheckpoint(Callback):
             be `min`, etc. In `auto` mode, the direction is
             automatically inferred from the name of the monitored quantity.
         period: Interval (number of epochs) between checkpoints.
+        max_checkpoints: Number of saved checkpoints to keep.
     """
 
     def __init__(self, filepath, monitor='val_loss', verbose=0,
                  save_best_only=False, save_weights_only=False,
-                 mode='auto', period=1):
+                 mode='auto', period=1, max_checkpoints=None):
         super(ModelCheckpoint, self).__init__()
         self.monitor = monitor
         self.verbose = verbose
@@ -673,6 +671,8 @@ class ModelCheckpoint(Callback):
         self.save_weights_only = save_weights_only
         self.period = period
         self.epochs_since_last_save = 0
+        self.max_checkpoints = max_checkpoints
+        self._checkpoints = []
 
         if mode not in ['auto', 'min', 'max']:
             warnings.warn('ModelCheckpoint mode %s is unknown, '
@@ -695,6 +695,16 @@ class ModelCheckpoint(Callback):
                 self.best = np.Inf
 
     def on_epoch_end(self, epoch, logs=None):
+        def save_model(filepath):
+            if self.save_weights_only:
+                self.model.save_weights(filepath, overwrite=True)
+            else:
+                self.model.save(filepath, overwrite=True)
+            if self.max_checkpoints:
+                self._checkpoints.append(filepath)
+                if len(self._checkpoints) > self.max_checkpoints:
+                    os.remove(self._checkpoints.pop(0))
+
         logs = logs or {}
         self.epochs_since_last_save += 1
         if self.epochs_since_last_save >= self.period:
@@ -713,10 +723,7 @@ class ModelCheckpoint(Callback):
                                   % (epoch + 1, self.monitor, self.best,
                                      current, filepath))
                         self.best = current
-                        if self.save_weights_only:
-                            self.model.save_weights(filepath, overwrite=True)
-                        else:
-                            self.model.save(filepath, overwrite=True)
+                        save_model(filepath)
                     else:
                         if self.verbose > 0:
                             print('\nEpoch %05d: %s did not improve from %0.5f' %
@@ -724,10 +731,7 @@ class ModelCheckpoint(Callback):
             else:
                 if self.verbose > 0:
                     print('\nEpoch %05d: saving model to %s' % (epoch + 1, filepath))
-                if self.save_weights_only:
-                    self.model.save_weights(filepath, overwrite=True)
-                else:
-                    self.model.save(filepath, overwrite=True)
+                save_model(filepath)
 
 
 class EarlyStopping(Callback):
